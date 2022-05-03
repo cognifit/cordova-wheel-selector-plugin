@@ -39,6 +39,10 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   _items = [_options objectForKey:@"displayItems"];
 
   UIView *view = [self createPickerView];
+  if (@available(iOS 13.0, *)) {
+    NSString *theme = (NSString *) [_options objectForKey:@"theme"];
+    [view setOverrideUserInterfaceStyle:[theme isEqualToString:@"dark"] ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight];
+  }
 
   NSDictionary *defaultItems = [_options objectForKey:@"defaultItems"];
   _itemsSelectedIndexes = [@{} mutableCopy];
