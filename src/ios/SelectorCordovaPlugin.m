@@ -181,7 +181,7 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
 
 #pragma mark - Show picker
 
-- (void)presentModalViewForView:(UIView *)view {
+- (void)presentModalViewForView:(UIView *)pickerView {
   [[NSNotificationCenter defaultCenter] addObserver:self
                                            selector:@selector(didRotate:)
                                                name:UIApplicationWillChangeStatusBarOrientationNotification
