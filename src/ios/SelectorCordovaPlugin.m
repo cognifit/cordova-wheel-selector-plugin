@@ -187,23 +187,24 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
                                                name:UIApplicationWillChangeStatusBarOrientationNotification
                                              object:nil];
 
-  CGRect viewFrame = CGRectMake(0, [self getSafeBottomPadding], self.viewSize.width, self.viewSize.height);
-  [view setFrame:CGRectMake(0, viewFrame.size.height, viewFrame.size.width, 260 + [self getSafeBottomPadding])];
-
+  CGRect viewFrame = CGRectMake(0, 0, self.viewSize.width, self.viewSize.height);
+  CGRect pickerViewFrame = CGRectMake(0, viewFrame.size.height, pickerView.frame.size.width, pickerView.frame.size.height);
+  pickerView.frame = pickerViewFrame;
+  
   _modalView = [[UIView alloc] initWithFrame:viewFrame];
   [_modalView setBackgroundColor:[UIColor clearColor]];
-  [_modalView addSubview:view];
-
+  [_modalView addSubview:pickerView];
+    
   // Add the modal view to current controller
   [self.webView.superview addSubview:self.modalView];
   [self.webView.superview bringSubviewToFront:self.modalView];
-
+  
   // Present the view animated
   [UIView animateWithDuration:0.3
                         delay:0.0
                       options: 0
                    animations:^{
-                     [_modalView.subviews[0] setFrame: CGRectOffset(viewFrame, 0, viewFrame.size.height - (260 + [self getSafeBottomPadding]) - [self getSafeBottomPadding])];
+                     [pickerView setFrame: CGRectOffset(pickerViewFrame, 0, -pickerViewFrame.size.height)];
                      [_modalView setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.5]];
                    }
                    completion:nil];
