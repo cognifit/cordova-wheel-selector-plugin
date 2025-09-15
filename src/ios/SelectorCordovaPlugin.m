@@ -126,17 +126,22 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   [buttons addObject:cancelButton];
 
   // Create title label aligned to center and appropriate spacers
-  UILabel *label =[[UILabel alloc] initWithFrame:CGRectMake(0, 0, 180, 30)];
-  [label setTextAlignment:NSTextAlignmentCenter];
-  [label setTextColor:(NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) ? [UIColor blackColor] : [UIColor whiteColor]];
-  [label setFont:[UIFont boldSystemFontOfSize:[[_options objectForKey:@"fontSize"] floatValue]]];
-  [label setBackgroundColor:[UIColor clearColor]];
-  [label setText:[_options objectForKey:@"title"]];
-
-  UIBarButtonItem *labelButton = [[UIBarButtonItem alloc] initWithCustomView:label];
+  NSString *title = [_options objectForKey:@"title"];
+  NSString *trimmed = [title stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
   UIBarButtonItem *flexSpace = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
-  [buttons addObject:flexSpace];
-  [buttons addObject:labelButton];
+  
+  if (trimmed != nil && trimmed.length > 0) {
+    UILabel *label =[[UILabel alloc] initWithFrame:CGRectMake(0, 0, 180, 30)];
+    [label setTextAlignment:NSTextAlignmentCenter];
+    [label setTextColor:(NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) ? [UIColor blackColor] : [UIColor whiteColor]];
+    [label setFont:[UIFont boldSystemFontOfSize:[[_options objectForKey:@"fontSize"] floatValue]]];
+    [label setBackgroundColor:[UIColor clearColor]];
+    [label setText:[_options objectForKey:@"title"]];
+    
+    UIBarButtonItem *labelButton = [[UIBarButtonItem alloc] initWithCustomView:label];
+    [buttons addObject:flexSpace];
+    [buttons addObject:labelButton];
+  }
   [buttons addObject:flexSpace];
 
   // Create Done button
