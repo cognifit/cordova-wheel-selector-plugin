@@ -6,6 +6,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.Paint;
 import android.os.Build;
 import android.util.Log;
@@ -14,6 +15,7 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
+import android.widget.TextView;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaInterface;
@@ -62,7 +64,7 @@ public class SelectorCordovaPlugin extends CordovaPlugin {
 
     public boolean execute(final String action, JSONArray args, final CallbackContext callbackContext) throws JSONException {
 
-        final CordovaInterface cordova = this.cordova; 
+        final CordovaInterface cordova = this.cordova;
 
         if (action.equals("showSelector")) {
 
@@ -164,7 +166,7 @@ public class SelectorCordovaPlugin extends CordovaPlugin {
                                         public void onClick(DialogInterface dialog,
                                                             int id) {
                                             Log.d(TAG, "User canceled");
-                                             callbackContext.sendPluginResult(new PluginResult(PluginResult.Status.ERROR));
+                                            callbackContext.sendPluginResult(new PluginResult(PluginResult.Status.ERROR));
                                             dialog.cancel();
                                         }
                                     });
@@ -175,6 +177,7 @@ public class SelectorCordovaPlugin extends CordovaPlugin {
 
                     alert.getWindow().getAttributes().windowAnimations = android.R.style.Animation_Dialog;
                     alert.show();
+                    styleAlertDialog(alert);
                 }
             };
 
@@ -261,6 +264,37 @@ public class SelectorCordovaPlugin extends CordovaPlugin {
         }
         return false;
     }
+
+    private static void styleAlertDialog(AlertDialog alertDialog) {
+        if (alertDialog == null || SELECTOR_THEME == null) {
+            return;
+        }
+
+        if (alertDialog.getWindow() != null) {
+            alertDialog.getWindow().setBackgroundDrawable(new ColorDrawable(SELECTOR_THEME.getDialogBackgroundColor()));
+        }
+
+        int titleId = alertDialog.getContext().getResources().getIdentifier("alertTitle", "id", "android");
+        if (titleId != 0) {
+            View titleView = alertDialog.findViewById(titleId);
+            if (titleView instanceof TextView) {
+                ((TextView) titleView).setTextColor(SELECTOR_THEME.getTitleTextColor());
+            }
+        }
+
+        int messageId = alertDialog.getContext().getResources().getIdentifier("message", "id", "android");
+        View messageView = alertDialog.findViewById(messageId);
+        if (messageView instanceof TextView) {
+            ((TextView) messageView).setTextColor(SELECTOR_THEME.getNumberPickerTextColor());
+        }
+
+        if (alertDialog.getButton(AlertDialog.BUTTON_POSITIVE) != null) {
+            alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(SELECTOR_THEME.getActionTextColor());
+        }
+        if (alertDialog.getButton(AlertDialog.BUTTON_NEGATIVE) != null) {
+            alertDialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(SELECTOR_THEME.getActionTextColor());
+        }
+    }
 }
 
 
@@ -302,7 +336,7 @@ class PickerView {
 
             //turn off soft keyboard
             picker.setDescendantFocusability(NumberPicker.FOCUS_BLOCK_DESCENDANTS);
-            
+
             setNumberPickerTextColor(picker, SELECTOR_THEME.getNumberPickerTextColor());
         }
 
@@ -341,14 +375,38 @@ class SelectorTheme {
 
     public int getAlertBuilderTheme() {
         if (themeColors.equalsIgnoreCase(SelectorCordovaPlugin.LIGHT_THEME)) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                return android.R.style.Theme_Material_Light_Dialog_Alert;
+            }
             return android.R.style.Theme_DeviceDefault_Light_Dialog_Alert;
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            return android.R.style.Theme_Material_Dialog_Alert;
+        }
         return android.R.style.Theme_DeviceDefault_Dialog_Alert;
     }
+
+    public int getDialogBackgroundColor() {
+        if (themeColors.equalsIgnoreCase(SelectorCordovaPlugin.LIGHT_THEME)) {
+            return Color.WHITE;
+        }
+
+        return Color.parseColor("#121212");
+    }
+
+    public int getTitleTextColor() {
+        return getNumberPickerTextColor();
+    }
+
+    public int getActionTextColor() {
+        if (themeColors.equalsIgnoreCase(SelectorCordovaPlugin.LIGHT_THEME)) {
+            return Color.parseColor("#1A73E8");
+        }
+
+        return Color.parseColor("#8AB4F8");
+    }
 }
-
-
 
 
 
