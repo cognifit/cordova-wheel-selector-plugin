@@ -26,6 +26,7 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
 @property (nonatomic, strong) UIView *modalView;
 @property (nonatomic, strong) NSArray *items;
 @property (nonatomic, strong) NSMutableDictionary *itemsSelectedIndexes;
+@property (nonatomic, assign) UIUserInterfaceStyle forcedInterfaceStyle;
 
 @end
 
@@ -37,11 +38,11 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   // NOTE: All default options are assumed to be set in JS code
   _options = [command.arguments objectAtIndex:0];
   _items = [_options objectForKey:@"displayItems"];
+  _forcedInterfaceStyle = [self resolvedInterfaceStyle];
 
   UIView *view = [self createPickerView];
   if (@available(iOS 13.0, *)) {
-    NSString *theme = (NSString *) [_options objectForKey:@"theme"];
-    [view setOverrideUserInterfaceStyle:[theme isEqualToString:@"dark"] ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight];
+    [view setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
   }
 
   NSDictionary *defaultItems = [_options objectForKey:@"defaultItems"];
@@ -82,12 +83,7 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
 - (UIView *)createPickerView {
   // Initialize container view
   UIView *view = [[UIView alloc] initWithFrame:CGRectMake(0, [self getSafeBottomPadding], self.viewSize.width, 260 + [self getSafeBottomPadding])];
-  if (@available(iOS 13, *)) {
-      [view setBackgroundColor:[UIColor systemBackgroundColor]];
-  }
-  else if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
-    [view setBackgroundColor:[UIColor colorWithRed:0.97 green:0.97 blue:0.97 alpha:1.0]];
-  }
+  [view setBackgroundColor:[self pickerBackgroundColor]];
 
   // Initialize toolbar
   UIToolbar *toolbar = [self createToolbar];
@@ -97,6 +93,10 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   _pickerView = [[UIPickerView alloc] initWithFrame:CGRectMake(0, 40.0f, self.viewSize.width, 260 - [self getSafeBottomPadding])];
   [_pickerView setShowsSelectionIndicator:YES];
   [_pickerView setDelegate:self];
+  [_pickerView setBackgroundColor:[self pickerBackgroundColor]];
+  if (@available(iOS 13.0, *)) {
+    [_pickerView setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
+  }
 
   // iOS7 picker draws a darkened alpha-only region on the first and last 8 pixels horizontally, but blurs the rest of its background.
   // To make the whole popup appear to be edge-to-edge, add blurring to the remaining left and right edges.
@@ -104,9 +104,19 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
     CGRect f = CGRectMake(0, toolbar.frame.origin.y, 8, view.frame.size.height - toolbar.frame.origin.y);
 
     UIToolbar *leftEdge = [[UIToolbar alloc] initWithFrame:f];
+    leftEdge.barStyle = toolbar.barStyle;
+    leftEdge.translucent = NO;
+    leftEdge.barTintColor = toolbar.barTintColor;
     f.origin.x = view.frame.size.width - 8;
 
     UIToolbar *rightEdge = [[UIToolbar alloc] initWithFrame:f];
+    rightEdge.barStyle = toolbar.barStyle;
+    rightEdge.translucent = NO;
+    rightEdge.barTintColor = toolbar.barTintColor;
+    if (@available(iOS 13.0, *)) {
+      [leftEdge setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
+      [rightEdge setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
+    }
     [view insertSubview:leftEdge atIndex:0];
     [view insertSubview:rightEdge atIndex:0];
   }
@@ -118,7 +128,13 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
 
 - (UIToolbar *)createToolbar {
   UIToolbar *toolbar = [[UIToolbar alloc] initWithFrame: CGRectMake(0, 0, self.viewSize.width, 44)];
-  toolbar.barStyle = (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) ? UIBarStyleDefault : UIBarStyleBlackTranslucent;
+  toolbar.barStyle = [self isDarkTheme] ? UIBarStyleBlack : UIBarStyleDefault;
+  toolbar.translucent = NO;
+  toolbar.barTintColor = [self toolbarBackgroundColor];
+  toolbar.tintColor = [self toolbarActionColor];
+  if (@available(iOS 13.0, *)) {
+    [toolbar setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
+  }
   NSMutableArray *buttons =[[NSMutableArray alloc] init];
 
   // Create Cancel button
@@ -133,7 +149,7 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   if (trimmed != nil && trimmed.length > 0) {
     UILabel *label =[[UILabel alloc] initWithFrame:CGRectMake(0, 0, 180, 30)];
     [label setTextAlignment:NSTextAlignmentCenter];
-    [label setTextColor:(NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) ? [UIColor blackColor] : [UIColor whiteColor]];
+    [label setTextColor:[self toolbarTitleColor]];
     [label setFont:[UIFont boldSystemFontOfSize:[[_options objectForKey:@"fontSize"] floatValue]]];
     [label setBackgroundColor:[UIColor clearColor]];
     [label setText:[_options objectForKey:@"title"]];
@@ -198,6 +214,9 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   
   _modalView = [[UIView alloc] initWithFrame:viewFrame];
   [_modalView setBackgroundColor:[UIColor clearColor]];
+  if (@available(iOS 13.0, *)) {
+    [_modalView setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
+  }
   [_modalView addSubview:pickerView];
     
   // Add the modal view to current controller
@@ -219,6 +238,9 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   UIViewController *popoverContent = [[UIViewController alloc] initWithNibName:nil bundle:nil];
   popoverContent.view = view;
   popoverContent.preferredContentSize = view.frame.size;
+  if (@available(iOS 13.0, *)) {
+    [popoverContent setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
+  }
 
   self.popoverController = [[UIPopoverController alloc] initWithContentViewController:popoverContent];
   self.popoverController.delegate = self;
@@ -307,7 +329,9 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
     pickerLabel = [[UILabel alloc] init];
     pickerLabel.font = [UIFont fontWithName:@"SourceSansPro-Semibold" size:[[_options objectForKey:@"fontSize"] floatValue]];
     pickerLabel.textAlignment=NSTextAlignmentCenter;
+    pickerLabel.backgroundColor = [UIColor clearColor];
   }
+  pickerLabel.textColor = [self pickerTextColor];
   [pickerLabel setText:_items[component][row]];
   return pickerLabel;
 }
@@ -369,6 +393,47 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
 
 - (BOOL)isViewPortrait {
   return UIInterfaceOrientationIsPortrait([UIApplication sharedApplication].statusBarOrientation);
+}
+
+- (BOOL)isDarkTheme {
+  NSString *theme = (NSString *)[_options objectForKey:@"theme"];
+  return [theme isEqualToString:@"dark"];
+}
+
+- (UIUserInterfaceStyle)resolvedInterfaceStyle {
+  return [self isDarkTheme] ? UIUserInterfaceStyleDark : UIUserInterfaceStyleLight;
+}
+
+- (UIColor *)pickerBackgroundColor {
+  if ([self isDarkTheme]) {
+    return [UIColor colorWithRed:0.11 green:0.11 blue:0.12 alpha:1.0];
+  }
+
+  return [UIColor colorWithRed:0.97 green:0.97 blue:0.97 alpha:1.0];
+}
+
+- (UIColor *)pickerTextColor {
+  return [self isDarkTheme] ? [UIColor whiteColor] : [UIColor blackColor];
+}
+
+- (UIColor *)toolbarBackgroundColor {
+  if ([self isDarkTheme]) {
+    return [UIColor colorWithRed:0.16 green:0.16 blue:0.17 alpha:1.0];
+  }
+
+  return [UIColor colorWithRed:0.97 green:0.97 blue:0.97 alpha:1.0];
+}
+
+- (UIColor *)toolbarTitleColor {
+  return [self isDarkTheme] ? [UIColor whiteColor] : [UIColor blackColor];
+}
+
+- (UIColor *)toolbarActionColor {
+  if ([self isDarkTheme]) {
+    return [UIColor colorWithRed:0.54 green:0.75 blue:0.98 alpha:1.0];
+  }
+
+  return [UIColor systemBlueColor];
 }
 
 @end
