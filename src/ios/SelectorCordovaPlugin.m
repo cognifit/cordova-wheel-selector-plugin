@@ -12,6 +12,12 @@
 // UIInterfaceOrientationMask.
 #define OrientationMaskSupportsOrientation(mask, orientation)   ((mask & (1 << orientation)) != 0)
 
+// Liquid Glass (iOS 26+): no toolbar, two capsules on a sheet with rounded top corners.
+static const CGFloat kGlassHeaderHeight = 72.0f;
+static const CGFloat kGlassButtonHeight = 48.0f;
+static const CGFloat kGlassButtonMargin = 16.0f;
+static const CGFloat kGlassSheetCornerRadius = 28.0f;
+
 typedef NS_ENUM(NSInteger, SelectorResultType) {
   SelectorResultTypeCanceled = 0,
   SelectorResultTypeDone = 1
@@ -81,22 +87,37 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
 }
 
 - (UIView *)createPickerView {
-  // Initialize container view
-  UIView *view = [[UIView alloc] initWithFrame:CGRectMake(0, [self getSafeBottomPadding], self.viewSize.width, 260 + [self getSafeBottomPadding])];
-  [view setBackgroundColor:[self pickerBackgroundColor]];
+  BOOL liquidGlass = [self usesLiquidGlass];
+  CGFloat pickerTop = liquidGlass ? kGlassHeaderHeight : 40.0f;
 
-  // Initialize toolbar
-  UIToolbar *toolbar = [self createToolbar];
-  [view addSubview:toolbar];
+  // Initialize container view
+  UIView *view = [[UIView alloc] initWithFrame:CGRectMake(0, [self getSafeBottomPadding], self.viewSize.width, 220 + pickerTop + [self getSafeBottomPadding])];
+  [view setBackgroundColor:[self pickerBackgroundColor]];
+  if (liquidGlass) {
+    view.layer.cornerRadius = kGlassSheetCornerRadius;
+    view.layer.maskedCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner;
+    view.clipsToBounds = YES;
+  }
 
   // Initialize picker
-  _pickerView = [[UIPickerView alloc] initWithFrame:CGRectMake(0, 40.0f, self.viewSize.width, 260 - [self getSafeBottomPadding])];
+  _pickerView = [[UIPickerView alloc] initWithFrame:CGRectMake(0, pickerTop, self.viewSize.width, 260 - [self getSafeBottomPadding])];
   [_pickerView setShowsSelectionIndicator:YES];
   [_pickerView setDelegate:self];
   [_pickerView setBackgroundColor:[self pickerBackgroundColor]];
   if (@available(iOS 13.0, *)) {
     [_pickerView setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
   }
+
+  if (liquidGlass) {
+    [view addSubview:self.pickerView];
+    // Above the picker, so it does not cut the capsules' shadows.
+    [self addGlassActionsToView:view];
+    return view;
+  }
+
+  // Initialize toolbar
+  UIToolbar *toolbar = [self createToolbar];
+  [view addSubview:toolbar];
 
   // iOS7 picker draws a darkened alpha-only region on the first and last 8 pixels horizontally, but blurs the rest of its background.
   // To make the whole popup appear to be edge-to-edge, add blurring to the remaining left and right edges.
@@ -166,6 +187,64 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   [toolbar setItems:buttons animated:YES];
 
   return toolbar;
+}
+
+// With Liquid Glass a UIToolbar recolours what it holds (white text turns cyan on cobalt), so the actions are plain
+// buttons: Cancel a glass capsule in the title's colour, Done a solid capsule in the action colour with white text.
+- (void)addGlassActionsToView:(UIView *)view {
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 260000
+  if (@available(iOS 26.0, *)) {
+    CGFloat top = (kGlassHeaderHeight - kGlassButtonHeight) / 2;
+
+    UIButtonConfiguration *cancel = [UIButtonConfiguration glassButtonConfiguration];
+    cancel.baseForegroundColor = [self toolbarTitleColor];
+    UIButton *cancelButton = [self glassButtonWithConfiguration:cancel
+                                                          title:[_options objectForKey:@"negativeButtonText"]
+                                                         weight:UIFontWeightRegular
+                                                         action:@selector(didDismissWithCancelButton:)];
+    cancelButton.frame = CGRectMake(kGlassButtonMargin, top, cancelButton.frame.size.width, kGlassButtonHeight);
+    cancelButton.autoresizingMask = UIViewAutoresizingFlexibleRightMargin;
+
+    UIButtonConfiguration *done = [UIButtonConfiguration filledButtonConfiguration];
+    done.baseBackgroundColor = [self toolbarActionColor];
+    done.baseForegroundColor = [UIColor whiteColor];
+    UIButton *doneButton = [self glassButtonWithConfiguration:done
+                                                        title:[_options objectForKey:@"positiveButtonText"]
+                                                       weight:UIFontWeightSemibold
+                                                       action:@selector(didDismissWithDoneButton:)];
+    CGFloat doneWidth = doneButton.frame.size.width;
+    doneButton.frame = CGRectMake(view.frame.size.width - kGlassButtonMargin - doneWidth, top, doneWidth, kGlassButtonHeight);
+    doneButton.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+
+    NSString *title = [[_options objectForKey:@"title"] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (title.length > 0) {
+      CGFloat left = CGRectGetMaxX(cancelButton.frame) + 8;
+      UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(left, top, CGRectGetMinX(doneButton.frame) - 8 - left, kGlassButtonHeight)];
+      label.textAlignment = NSTextAlignmentCenter;
+      label.textColor = [self toolbarTitleColor];
+      label.font = [UIFont boldSystemFontOfSize:[[_options objectForKey:@"fontSize"] floatValue]];
+      label.adjustsFontSizeToFitWidth = YES;
+      label.text = title;
+      label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+      [view addSubview:label];
+    }
+
+    [view addSubview:cancelButton];
+    [view addSubview:doneButton];
+  }
+#endif
+}
+
+- (UIButton *)glassButtonWithConfiguration:(UIButtonConfiguration *)configuration title:(NSString *)title weight:(UIFontWeight)weight action:(SEL)action API_AVAILABLE(ios(15.0)) {
+  configuration.cornerStyle = UIButtonConfigurationCornerStyleCapsule;
+  configuration.contentInsets = NSDirectionalEdgeInsetsMake(0, 20, 0, 20);
+  NSDictionary *attributes = @{ NSFontAttributeName: [UIFont systemFontOfSize:17 weight:weight] };
+  configuration.attributedTitle = [[NSAttributedString alloc] initWithString:title ?: @"" attributes:attributes];
+
+  UIButton *button = [UIButton buttonWithConfiguration:configuration primaryAction:nil];
+  [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+  [button sizeToFit];
+  return button;
 }
 
 - (void)sendResultsFromPickerView:(UIPickerView *)pickerView resultType:(SelectorResultType)resultType {
@@ -391,6 +470,16 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
     return bottomPadding;
 }
 
+- (BOOL)usesLiquidGlass {
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 260000
+  if (@available(iOS 26.0, *)) {
+    // An app that opts out of the new design (UIDesignRequiresCompatibility) keeps the old toolbar.
+    return ![[[NSBundle mainBundle] objectForInfoDictionaryKey:@"UIDesignRequiresCompatibility"] boolValue];
+  }
+#endif
+  return NO;
+}
+
 - (BOOL)isViewPortrait {
   return UIInterfaceOrientationIsPortrait([UIApplication sharedApplication].statusBarOrientation);
 }
@@ -409,11 +498,11 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
     return [UIColor colorWithRed:0.11 green:0.11 blue:0.12 alpha:1.0];
   }
 
-  return [UIColor colorWithRed:0.97 green:0.97 blue:0.97 alpha:1.0];
+  return [self canvasColor];
 }
 
 - (UIColor *)pickerTextColor {
-  return [self isDarkTheme] ? [UIColor whiteColor] : [UIColor blackColor];
+  return [self isDarkTheme] ? [UIColor whiteColor] : [self inkColor];
 }
 
 - (UIColor *)toolbarBackgroundColor {
@@ -421,11 +510,11 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
     return [UIColor colorWithRed:0.16 green:0.16 blue:0.17 alpha:1.0];
   }
 
-  return [UIColor colorWithRed:0.97 green:0.97 blue:0.97 alpha:1.0];
+  return [self canvasColor];
 }
 
 - (UIColor *)toolbarTitleColor {
-  return [self isDarkTheme] ? [UIColor whiteColor] : [UIColor blackColor];
+  return [self isDarkTheme] ? [UIColor whiteColor] : [self inkColor];
 }
 
 - (UIColor *)toolbarActionColor {
@@ -433,7 +522,18 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
     return [UIColor colorWithRed:0.54 green:0.75 blue:0.98 alpha:1.0];
   }
 
-  return [UIColor systemBlueColor];
+  // CogniFit's cobalt.
+  return [UIColor colorWithRed:7/255.0 green:87/255.0 blue:236/255.0 alpha:1.0];
+}
+
+// CogniFit's ivory canvas.
+- (UIColor *)canvasColor {
+  return [UIColor colorWithRed:248/255.0 green:246/255.0 blue:242/255.0 alpha:1.0];
+}
+
+// CogniFit's ink.
+- (UIColor *)inkColor {
+  return [UIColor colorWithRed:16/255.0 green:19/255.0 blue:45/255.0 alpha:1.0];
 }
 
 @end
