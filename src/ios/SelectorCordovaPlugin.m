@@ -3,14 +3,7 @@
 #import <Cordova/CDVAvailability.h>
 
 
-#define IS_WIDESCREEN ( fabs( ( double )[ [ UIScreen mainScreen ] bounds ].size.height - ( double )568 ) < DBL_EPSILON )
-#define IS_IPAD UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad
-#define DEVICE_ORIENTATION [UIDevice currentDevice].orientation
-
-// UIInterfaceOrientationMask vs. UIInterfaceOrientation
-// A function like this isn't available in the API. It is derived from the enum def for
-// UIInterfaceOrientationMask.
-#define OrientationMaskSupportsOrientation(mask, orientation)   ((mask & (1 << orientation)) != 0)
+#define IS_IPAD ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad)
 
 // Liquid Glass (iOS 26+): no toolbar, two capsules on a sheet with rounded top corners.
 static const CGFloat kGlassHeaderHeight = 72.0f;
@@ -23,13 +16,35 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   SelectorResultTypeDone = 1
 };
 
-@interface SelectorCordovaPlugin () <UIActionSheetDelegate, UIPopoverControllerDelegate, UIPickerViewDelegate, UIPickerViewDataSource>
+// The dimmed layer behind the picker on iPhone. It follows its superview's size, and tells when that size changes (the
+// interface rotated), so the picker is not left laid out for the old size.
+@interface SelectorModalView : UIView
+
+@property (nonatomic, copy) void (^onResize)(void);
+@property (nonatomic, assign) CGSize laidOutSize;
+
+@end
+
+@implementation SelectorModalView
+
+- (void)layoutSubviews {
+  [super layoutSubviews];
+  CGSize size = self.bounds.size;
+  if (!CGSizeEqualToSize(self.laidOutSize, CGSizeZero) && !CGSizeEqualToSize(self.laidOutSize, size) && self.onResize) {
+    dispatch_async(dispatch_get_main_queue(), self.onResize);
+  }
+  self.laidOutSize = size;
+}
+
+@end
+
+@interface SelectorCordovaPlugin () <UIPopoverPresentationControllerDelegate, UIPickerViewDelegate, UIPickerViewDataSource>
 
 @property (nonatomic, copy) NSString* callbackId;
 @property (nonatomic, strong) NSMutableDictionary *options;
 @property (nonatomic, strong) UIPickerView *pickerView;
-@property (nonatomic, strong) UIPopoverController *popoverController;
-@property (nonatomic, strong) UIView *modalView;
+@property (nonatomic, strong) UIViewController *popoverViewController;
+@property (nonatomic, strong) SelectorModalView *modalView;
 @property (nonatomic, strong) NSArray *items;
 @property (nonatomic, strong) NSMutableDictionary *itemsSelectedIndexes;
 @property (nonatomic, assign) UIUserInterfaceStyle forcedInterfaceStyle;
@@ -54,8 +69,8 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   NSDictionary *defaultItems = [_options objectForKey:@"defaultItems"];
   _itemsSelectedIndexes = [@{} mutableCopy];
 
-  for (int columnIndex = 0; columnIndex < _items.count; columnIndex++) {
-    NSString *columnIndexString = [NSString stringWithFormat:@"%i", columnIndex];
+  for (NSUInteger columnIndex = 0; columnIndex < _items.count; columnIndex++) {
+    NSString *columnIndexString = [NSString stringWithFormat:@"%lu", (unsigned long)columnIndex];
     NSInteger initialValueIndex = 0;
 
     if (defaultItems) {
@@ -101,7 +116,6 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
 
   // Initialize picker
   _pickerView = [[UIPickerView alloc] initWithFrame:CGRectMake(0, pickerTop, self.viewSize.width, 260 - [self getSafeBottomPadding])];
-  [_pickerView setShowsSelectionIndicator:YES];
   [_pickerView setDelegate:self];
   [_pickerView setBackgroundColor:[self pickerBackgroundColor]];
   if (@available(iOS 13.0, *)) {
@@ -119,28 +133,26 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   UIToolbar *toolbar = [self createToolbar];
   [view addSubview:toolbar];
 
-  // iOS7 picker draws a darkened alpha-only region on the first and last 8 pixels horizontally, but blurs the rest of its background.
-  // To make the whole popup appear to be edge-to-edge, add blurring to the remaining left and right edges.
-  if (NSFoundationVersionNumber > NSFoundationVersionNumber_iOS_6_1) {
-    CGRect f = CGRectMake(0, toolbar.frame.origin.y, 8, view.frame.size.height - toolbar.frame.origin.y);
+  // The picker draws a darkened alpha-only region on the first and last 8 pixels horizontally, but blurs the rest of its
+  // background. To make the whole popup appear to be edge-to-edge, add blurring to the remaining left and right edges.
+  CGRect f = CGRectMake(0, toolbar.frame.origin.y, 8, view.frame.size.height - toolbar.frame.origin.y);
 
-    UIToolbar *leftEdge = [[UIToolbar alloc] initWithFrame:f];
-    leftEdge.barStyle = toolbar.barStyle;
-    leftEdge.translucent = NO;
-    leftEdge.barTintColor = toolbar.barTintColor;
-    f.origin.x = view.frame.size.width - 8;
+  UIToolbar *leftEdge = [[UIToolbar alloc] initWithFrame:f];
+  leftEdge.barStyle = toolbar.barStyle;
+  leftEdge.translucent = NO;
+  leftEdge.barTintColor = toolbar.barTintColor;
+  f.origin.x = view.frame.size.width - 8;
 
-    UIToolbar *rightEdge = [[UIToolbar alloc] initWithFrame:f];
-    rightEdge.barStyle = toolbar.barStyle;
-    rightEdge.translucent = NO;
-    rightEdge.barTintColor = toolbar.barTintColor;
-    if (@available(iOS 13.0, *)) {
-      [leftEdge setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
-      [rightEdge setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
-    }
-    [view insertSubview:leftEdge atIndex:0];
-    [view insertSubview:rightEdge atIndex:0];
+  UIToolbar *rightEdge = [[UIToolbar alloc] initWithFrame:f];
+  rightEdge.barStyle = toolbar.barStyle;
+  rightEdge.translucent = NO;
+  rightEdge.barTintColor = toolbar.barTintColor;
+  if (@available(iOS 13.0, *)) {
+    [leftEdge setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
+    [rightEdge setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
   }
+  [view insertSubview:leftEdge atIndex:0];
+  [view insertSubview:rightEdge atIndex:0];
 
   [view addSubview:self.pickerView];
 
@@ -282,16 +294,18 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
 #pragma mark - Show picker
 
 - (void)presentModalViewForView:(UIView *)pickerView {
-  [[NSNotificationCenter defaultCenter] addObserver:self
-                                           selector:@selector(didRotate:)
-                                               name:UIApplicationWillChangeStatusBarOrientationNotification
-                                             object:nil];
-
   CGRect viewFrame = CGRectMake(0, 0, self.viewSize.width, self.viewSize.height);
   CGRect pickerViewFrame = CGRectMake(0, viewFrame.size.height, pickerView.frame.size.width, pickerView.frame.size.height);
   pickerView.frame = pickerViewFrame;
   
-  _modalView = [[UIView alloc] initWithFrame:viewFrame];
+  SelectorModalView *modalView = [[SelectorModalView alloc] initWithFrame:viewFrame];
+  modalView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+  __weak SelectorCordovaPlugin *weakSelf = self;
+  __weak SelectorModalView *weakModalView = modalView;
+  modalView.onResize = ^{
+    [weakSelf didRotateModalView:weakModalView];
+  };
+  _modalView = modalView;
   [_modalView setBackgroundColor:[UIColor clearColor]];
   if (@available(iOS 13.0, *)) {
     [_modalView setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
@@ -308,7 +322,7 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
                       options: 0
                    animations:^{
                      [pickerView setFrame: CGRectOffset(pickerViewFrame, 0, -pickerViewFrame.size.height)];
-                     [_modalView setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.5]];
+                     [modalView setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.5]];
                    }
                    completion:nil];
 }
@@ -321,37 +335,38 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
     [popoverContent setOverrideUserInterfaceStyle:_forcedInterfaceStyle];
   }
 
-  self.popoverController = [[UIPopoverController alloc] initWithContentViewController:popoverContent];
-  self.popoverController.delegate = self;
+  popoverContent.modalPresentationStyle = UIModalPresentationPopover;
 
-  // Present the popover view non-modal with a refrence to the button pressed within the current view
-  // Display picker at the center of the view
-  CGRect sourceRect = CGRectMake(self.webView.superview.center.x, self.webView.superview.center.y, 1, 1);
-  [self.popoverController presentPopoverFromRect:sourceRect
-                                          inView:self.webView.superview
-                        permittedArrowDirections: 0
-                                        animated:YES];
+  // Display picker at the center of the view, without an arrow
+  UIPopoverPresentationController *popover = popoverContent.popoverPresentationController;
+  popover.delegate = self;
+  popover.sourceView = self.webView.superview;
+  popover.sourceRect = [self popoverSourceRectInView:self.webView.superview];
+  popover.permittedArrowDirections = 0;
+
+  self.popoverViewController = popoverContent;
+  [self.viewController presentViewController:popoverContent animated:YES completion:nil];
+}
+
+- (CGRect)popoverSourceRectInView:(UIView *)view {
+  return CGRectMake(CGRectGetMidX(view.bounds), CGRectGetMidY(view.bounds), 1, 1);
 }
 
 # pragma mark - Dismiss picker
 
-- (void)didRotate:(NSNotification *)notification {
-  UIInterfaceOrientationMask supportedInterfaceOrientations = (UIInterfaceOrientationMask) [[UIApplication sharedApplication] supportedInterfaceOrientationsForWindow:[UIApplication sharedApplication].keyWindow];
-
-  if (OrientationMaskSupportsOrientation(supportedInterfaceOrientations, DEVICE_ORIENTATION)) {
-    if (IS_IPAD) {
-      [self dismissPopoverController:_popoverController animated:YES];
-    } else {
-      [self dismissModalView:_modalView animated:YES];
-    }
-
-    [self sendResultsFromPickerView:_pickerView resultType:SelectorResultTypeCanceled];
+// The interface rotated while the picker was showing: cancel it, as it was laid out for the old size.
+- (void)didRotateModalView:(SelectorModalView *)modalView {
+  if (modalView == nil || modalView != _modalView || _callbackId == nil) {
+    return;
   }
+
+  [self dismissModalView:modalView animated:YES];
+  [self sendResultsFromPickerView:_pickerView resultType:SelectorResultTypeCanceled];
 }
 
 - (IBAction)didDismissWithDoneButton:(id)sender {
   if (IS_IPAD) {
-    [self dismissPopoverController:_popoverController animated:YES];
+    [self dismissPopoverViewController:_popoverViewController animated:YES];
   } else {
     [self dismissModalView:_modalView animated:YES];
   }
@@ -361,7 +376,7 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
 
 - (IBAction)didDismissWithCancelButton:(id)sender {
   if (IS_IPAD) {
-    [self dismissPopoverController:_popoverController animated:YES];
+    [self dismissPopoverViewController:_popoverViewController animated:YES];
   } else {
     [self dismissModalView:_modalView animated:YES];
   }
@@ -369,16 +384,35 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   [self sendResultsFromPickerView:_pickerView resultType:SelectorResultTypeCanceled];
 }
 
-- (void)popoverControllerDidDismissPopover:(UIPopoverController *)popoverController {
+#pragma mark - UIPopoverPresentationControllerDelegate
+
+// Tapped outside the popover.
+- (void)presentationControllerDidDismiss:(UIPresentationController *)presentationController {
+  _popoverViewController = nil;
   [self sendResultsFromPickerView:_pickerView resultType:SelectorResultTypeCanceled];
 }
 
-- (void)dismissPopoverController:(UIPopoverController *)popoverController animated:(Boolean)animated {
-  [popoverController dismissPopoverAnimated:animated];
+// Keep the popover in a compact width (Split View, Slide Over) instead of turning it into a sheet.
+- (UIModalPresentationStyle)adaptivePresentationStyleForPresentationController:(UIPresentationController *)controller traitCollection:(UITraitCollection *)traitCollection {
+  return UIModalPresentationNone;
 }
 
-- (void)dismissModalView:(UIView *)modalView animated:(Boolean)animated {
-  [[NSNotificationCenter defaultCenter] removeObserver:self name:UIApplicationWillChangeStatusBarOrientationNotification object:nil];
+// Keep the popover centred when the interface rotates.
+- (void)popoverPresentationController:(UIPopoverPresentationController *)popoverPresentationController willRepositionPopoverToRect:(inout CGRect *)rect inView:(inout UIView *__autoreleasing *)view {
+  *rect = [self popoverSourceRectInView:*view];
+}
+
+- (void)dismissPopoverViewController:(UIViewController *)popoverViewController animated:(BOOL)animated {
+  [popoverViewController dismissViewControllerAnimated:animated completion:nil];
+  if (popoverViewController == _popoverViewController) {
+    _popoverViewController = nil;
+  }
+}
+
+- (void)dismissModalView:(UIView *)modalView animated:(BOOL)animated {
+  if ([modalView isKindOfClass:[SelectorModalView class]]) {
+    ((SelectorModalView *)modalView).onResize = nil;
+  }
 
   // Hide the view animated
   [UIView animateWithDuration:0.3
@@ -386,11 +420,11 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
                       options: 0
                    animations:^{
                      CGRect viewFrame = CGRectMake(0, 0, self.viewSize.width, self.viewSize.height);
-                     [_modalView.subviews[0] setFrame: CGRectOffset(viewFrame, 0, viewFrame.size.height)];
-                     [_modalView setBackgroundColor:[UIColor clearColor]];
+                     [modalView.subviews.firstObject setFrame: CGRectOffset(viewFrame, 0, viewFrame.size.height)];
+                     [modalView setBackgroundColor:[UIColor clearColor]];
                    }
                    completion:^(BOOL finished) {
-                     [_modalView removeFromSuperview];
+                     [modalView removeFromSuperview];
                    }];
 }
 
@@ -442,32 +476,12 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
     return CGSizeMake(500, 320);
   }
 
-#if defined(__IPHONE_8_0)
-  if (floor(NSFoundationVersionNumber) <= NSFoundationVersionNumber_iOS_7_1) {
-    //iOS 7.1 or earlier
-    if ([self isViewPortrait])
-      return CGSizeMake(320 , IS_WIDESCREEN ? 568 : 480);
-    return CGSizeMake(IS_WIDESCREEN ? 568 : 480, 320);
-  } else {
-    //iOS 8 or later
-    return [[UIScreen mainScreen] bounds].size;
-  }
-#else
-  if ([self isViewPortrait]) {
-    return CGSizeMake(320 , IS_WIDESCREEN ? 568 : 480);
-  }
-  return CGSizeMake(IS_WIDESCREEN ? 568 : 480, 320);
-#endif
+  // The view the picker is shown in, which fills the app's window.
+  return self.webView.superview.bounds.size;
 }
 
 - (CGFloat) getSafeBottomPadding {
-    CGFloat bottomPadding = 0.0f;
-    if (@available(iOS 11.0, *)) {
-        UIWindow *window = UIApplication.sharedApplication.keyWindow;
-        bottomPadding = window.safeAreaInsets.bottom;
-    }
-
-    return bottomPadding;
+  return self.webView.window.safeAreaInsets.bottom;
 }
 
 - (BOOL)usesLiquidGlass {
@@ -478,10 +492,6 @@ typedef NS_ENUM(NSInteger, SelectorResultType) {
   }
 #endif
   return NO;
-}
-
-- (BOOL)isViewPortrait {
-  return UIInterfaceOrientationIsPortrait([UIApplication sharedApplication].statusBarOrientation);
 }
 
 - (BOOL)isDarkTheme {
